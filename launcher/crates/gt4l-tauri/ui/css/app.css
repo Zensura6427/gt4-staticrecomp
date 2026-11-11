@@ -550,8 +550,8 @@ body.input-pad .selector:focus .selector-arrow { color: var(--white); }
 .selector-value.enter-from-left { animation: version-enter-left 320ms cubic-bezier(0.25, 0.8, 0.25, 1) both; }
 .selector-value.leave-to-left { animation: version-leave-left 320ms cubic-bezier(0.25, 0.8, 0.25, 1) both; }
 .selector-value.leave-to-right { animation: version-leave-right 320ms cubic-bezier(0.25, 0.8, 0.25, 1) both; }
-/* Prevent overlapping labels in the Controls panel's option selectors. */
-.cx-panel .selector-value.is-leaving {
+/* Prevent overlapping labels in settings option selectors. */
+.selector .selector-value.is-leaving {
   visibility: hidden;
 }
 /* The GSdx download in its dialog (settings.js). */
