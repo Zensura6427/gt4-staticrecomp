@@ -233,8 +233,8 @@ pub fn settings_table_with_monitors(
         rows.push(trigger_row(trigger, controls, "curve"));
     }
     rows.push(stick_row(Stick::Left, controls));
-rows.push(left_stick_curve_row(controls));
-rows.push(stick_row(Stick::Right, controls));
+    rows.push(left_stick_curve_row(controls));
+    rows.push(stick_row(Stick::Right, controls));
     json!({ "max_upscale": MAX_UPSCALE_DEFAULT, "rows": rows })
 }
 
