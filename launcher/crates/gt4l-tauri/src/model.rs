@@ -234,6 +234,7 @@ pub fn settings_table_with_monitors(
     }
     rows.push(stick_row(Stick::Left, controls));
     rows.push(left_stick_curve_row(controls));
+    rows.push(left_stick_response_row(controls));
     rows.push(stick_row(Stick::Right, controls));
     json!({ "max_upscale": MAX_UPSCALE_DEFAULT, "rows": rows })
 }
@@ -484,6 +485,26 @@ fn left_stick_curve_row(controls: &Controls) -> Value {
         "current": controls.stick_curve(Stick::Left).as_str(),
     })
 }
+/// The longest steering response time the slider offers, in milliseconds (the controls file accepts up to 2 s).
+pub const STEERING_RESPONSE_MAX_MS: u32 = 1000;
+
+/// The steering response time of the left stick (`lstick_response_time`), in milliseconds: how long the steering takes
+/// from the centre to full lock, so a quick flick of the stick turns the wheels in gradually. 0 is off.
+fn left_stick_response_row(controls: &Controls) -> Value {
+    json!({
+        "id": "lstick_response_time",
+        "label": "Steering response time",
+        "help": "How long the steering takes to go from the centre to full lock, in milliseconds. A quick flick of the \
+                 stick then turns the wheels in gradually instead of all at once. 0 is off.",
+        "page": "basic",
+        "group": "controls",
+        "control": "slider",
+        "values": { "min": 0, "max": STEERING_RESPONSE_MAX_MS, "step": 25, "unit": " ms" },
+        "default": 0,
+        "current": (controls.stick_response_time(Stick::Left) * 1000.0).round() as u32,
+    })
+}
+
 /// The stick a `set_setting` id tunes (`lstick_deadzone`, `rstick_deadzone`), or `None`.
 pub fn stick_setting(id: &str) -> Option<Stick> {
     match id {
@@ -1148,9 +1169,17 @@ mod table_tests {
                 "r2_curve",
                 "lstick_deadzone",
                 "lstick_curve",
+                "lstick_response_time",
                 "rstick_deadzone",
             ]
         );
+
+        // The steering response time: a slider in milliseconds, off by default.
+        let response = view["triggers"].as_array().unwrap().iter().find(|row| row["id"] == "lstick_response_time").unwrap();
+        assert_eq!(response["control"], "slider");
+        assert_eq!(response["default"], 0);
+        assert_eq!(response["current"], 0);
+        assert_eq!(response["values"]["max"], STEERING_RESPONSE_MAX_MS);
 
         // The left stick curve selector must expose all seven curves.
         let curve_row = view["triggers"]

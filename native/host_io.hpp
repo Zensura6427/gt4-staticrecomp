@@ -13,6 +13,7 @@
 #include "pad_mapping.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -53,6 +54,8 @@ public:
 private:
   PadState poll_xinput(bool focused);
   PadState poll_sdl(bool focused);
+  // Maps a reading through map_ with the sticks' response times (Binding::response_time), timed by the steady clock.
+  PadState map_timed(const gt4::pad::GamepadReading &reading);
   void rumble_xinput(std::uint16_t value);
   void rumble_sdl(std::uint16_t value);
   void close_sdl_pad();
@@ -73,6 +76,10 @@ private:
   ULONGLONG rumble_sent_at_ = 0;
   bool sdl_initialized_ = false;
   std::uint16_t motors_ = 0;
+  // Where the sticks with a response time have got to, and when the last reading was mapped.
+  gt4::pad::AxisSmoothing smoothing_;
+  std::chrono::steady_clock::time_point last_mapped_{};
+  bool has_last_mapped_ = false;
 };
 
 // The output the game asks for: the Windows default device, or none (GT4_AUDIO=none, and the fixture).

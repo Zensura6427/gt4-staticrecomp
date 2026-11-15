@@ -101,6 +101,7 @@ Options follow the source after a `|`, separated by spaces: `"xinput:LT | deadzo
 | `curve` | triggers, sticks | `linear`, `quadratic`, `cubic`, `s_curve`, `smooth_power`, `sublinear`, `logarithmic` | `linear` |
 | `invert` | sticks only | `true` or `false` | `false` |
 | `game_deadzone` | sticks only | `skip` or `keep` | `skip` |
+| `response_time` | sticks only | 0 to 2; seconds the reading takes from rest to full deflection, both ways (a flick to full lock turns the wheels in gradually; the launcher's "Steering response time") | 0 (off) |
 | `range` | triggers only | whole number 1 to 255; the pressure byte at full travel, on the game's own scale | 45 on R2, 84 on L2, 255 on any other input |
 | `range_full` | triggers only | whole number 1 to 255; the same with the full trigger range on (TASK-161) | 255 |
 

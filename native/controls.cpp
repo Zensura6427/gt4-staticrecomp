@@ -341,6 +341,13 @@ Binding parse_source(std::string_view text, const InputInfo &input, const std::s
       if (mode != "skip" && mode != "keep")
         fail(source, line, "game_deadzone must be skip or keep");
       binding.skip_game_deadzone = mode == "skip";
+    } else if (option == "response_time") {
+      if (binding.kind != SourceKind::xinput_axis)
+        fail(source, line, "response_time applies to stick axes only");
+      const double seconds = parse_number(value, source, line, option);
+      if (seconds < 0.0 || seconds > 2.0)
+        fail(source, line, "response_time must be between 0 and 2 seconds");
+      binding.response_time = seconds;
     } else if (option == "invert") {
       if (binding.kind != SourceKind::xinput_axis)
         fail(source, line, "invert applies to stick axes only");
@@ -610,12 +617,26 @@ TriggerReading read_trigger(const Binding &binding, std::uint8_t raw, PressureSc
   return {true, static_cast<std::uint8_t>(std::clamp(pressure, 0, trigger_full))};
 }
 
-std::uint8_t read_axis(const Binding &binding, std::int16_t raw) {
+namespace {
+
+// A stick reading past the binding's dead zone: `steps` (0 at rest, up to 127 one way and 128 the other) and its side.
+struct AxisSteps {
+  int steps = 0;
+  bool negative = false;
+};
+
+std::uint8_t steps_byte(const Binding &binding, AxisSteps reading) {
+  if (binding.skip_game_deadzone)
+    return game_stick_byte(reading.steps, reading.negative);
+  return static_cast<std::uint8_t>(reading.negative ? 128 - reading.steps : 128 + reading.steps);
+}
+
+AxisSteps axis_steps(const Binding &binding, std::int16_t raw) {
   const int value = raw;
   const int magnitude = value < 0 ? -value : value;
   const int deadzone = deadzone_raw(binding, stick_positive_full);
   if (magnitude <= deadzone)
-    return 128;
+    return {};
   // The travel range follows the sign of the raw value, as the slice 157 mapping does.
   const int full = value < 0 ? stick_negative_full : stick_positive_full;
   const int range = full - deadzone;
@@ -629,9 +650,37 @@ std::uint8_t read_axis(const Binding &binding, std::int16_t raw) {
     const double shaped = std::min(1.0, shape(fraction, binding.curve) * binding.scale);
     steps = static_cast<int>(std::floor(shaped * (negative ? 128.0 : 127.0)));
   }
-  if (binding.skip_game_deadzone)
-    return game_stick_byte(steps, negative);
-  return static_cast<std::uint8_t>(negative ? 128 - steps : 128 + steps);
+  return {steps, negative};
+}
+
+} // namespace
+
+std::uint8_t read_axis(const Binding &binding, std::int16_t raw) {
+  return steps_byte(binding, axis_steps(binding, raw));
+}
+
+double axis_position(const Binding &binding, std::int16_t raw) {
+  const AxisSteps reading = axis_steps(binding, raw);
+  if (reading.steps <= 0)
+    return 0.0;
+  return reading.negative ? -reading.steps / 128.0 : reading.steps / 127.0;
+}
+
+std::uint8_t axis_byte(const Binding &binding, double position) {
+  AxisSteps reading;
+  reading.negative = position < 0.0;
+  const double magnitude = std::min(1.0, std::abs(position));
+  reading.steps = static_cast<int>(std::lround(magnitude * (reading.negative ? 128.0 : 127.0)));
+  return steps_byte(binding, reading);
+}
+
+double approach_position(double current, double target, double dt, double response_time) {
+  if (!(response_time > 0.0))
+    return target;
+  const double step = std::max(0.0, dt) / response_time;
+  if (target > current)
+    return std::min(target, current + step);
+  return std::max(target, current - step);
 }
 
 } // namespace gt4::controls

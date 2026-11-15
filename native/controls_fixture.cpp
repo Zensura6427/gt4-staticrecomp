@@ -567,6 +567,12 @@ void check_invalid_files() {
                       "game_deadzone value");
   expect_config_error("schema = 1\n[bindings]\nr2 = [\"xinput:RT | game_deadzone=keep\"]\n", "game_deadzone applies to stick axes only", 3,
                       "game_deadzone on a trigger");
+  expect_config_error("schema = 1\n[bindings]\nlstick_x = [\"xinput:LX | response_time=3\"]\n",
+                      "response_time must be between 0 and 2 seconds", 3, "response_time above two seconds");
+  expect_config_error("schema = 1\n[bindings]\nlstick_x = [\"xinput:LX | response_time=-0.1\"]\n",
+                      "response_time must be between 0 and 2 seconds", 3, "negative response_time");
+  expect_config_error("schema = 1\n[bindings]\nr2 = [\"xinput:RT | response_time=0.3\"]\n",
+                      "response_time applies to stick axes only", 3, "response_time on a trigger");
   expect_config_error("schema = 1\n[bindings]\ncross = xinput:A\n",
                       "quoted string or an array", 3, "unquoted value");
   expect_config_error("schema = 1\n[bindings]\ncross = [\"xinput:A\" \"key:Z\"]\n",

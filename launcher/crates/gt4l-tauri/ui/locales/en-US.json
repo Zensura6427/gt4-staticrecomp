@@ -251,6 +251,8 @@
   "setting.rstick_deadzone.label": "Right stick deadzone",
 "setting.lstick_curve.label": "Left stick curve",
 "setting.lstick_curve.help": "Adjusts how steering responds to the left stick. Quadratic and cubic curves provide finer steering control near the centre.",
+  "setting.lstick_response_time.label": "Steering response time",
+  "setting.lstick_response_time.help": "How long the steering takes to go from the centre to full lock, in milliseconds. A quick flick of the stick then turns the wheels in gradually instead of all at once. 0 is off.",
   "setting.trigger_deadzone.help": "How far the trigger must travel before it counts, in percent of its travel. The pressure the game reads starts above this point.",
   "setting.trigger_curve.help": "How the pressure grows with the trigger travel. Linear follows the trigger; quadratic and cubic give finer control at light pressure.",
   "setting.stick_deadzone.help": "How far the stick must move from the centre before the game sees it, in percent of its travel. The default is the XInput standard; lower it for a precise pad, raise it for one that drifts.",

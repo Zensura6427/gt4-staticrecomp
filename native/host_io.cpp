@@ -46,7 +46,8 @@ void press(PadState &pad, std::uint8_t bit, std::uint8_t pressure) {
 } // namespace
 
 // Stick and trigger readings are computed by controls.cpp (read_axis, read_trigger), through pad_mapping.cpp.
-PadState map_gamepad(const XINPUT_GAMEPAD &gamepad, const ControlMap &map) {
+namespace {
+gt4::pad::GamepadReading xinput_reading(const XINPUT_GAMEPAD &gamepad) {
   gt4::pad::GamepadReading reading;
   reading.buttons = gamepad.wButtons;
   reading.left_trigger = gamepad.bLeftTrigger;
@@ -55,7 +56,12 @@ PadState map_gamepad(const XINPUT_GAMEPAD &gamepad, const ControlMap &map) {
   reading.thumb_ry = gamepad.sThumbRY;
   reading.thumb_lx = gamepad.sThumbLX;
   reading.thumb_ly = gamepad.sThumbLY;
-  return gt4::pad::map_reading(reading, map);
+  return reading;
+}
+} // namespace
+
+PadState map_gamepad(const XINPUT_GAMEPAD &gamepad, const ControlMap &map) {
+  return gt4::pad::map_reading(xinput_reading(gamepad), map);
 }
 
 PadState map_gamepad(const XINPUT_GAMEPAD &gamepad) {
@@ -157,7 +163,7 @@ PadState ControllerInput::poll_xinput(bool focused) {
   if (slot_ != XUSER_MAX_COUNT) {
     const DWORD result = XInputGetState(slot_, &state);
     if (result == ERROR_SUCCESS)
-      pad = map_gamepad(state.Gamepad, map_);
+      pad = map_timed(xinput_reading(state.Gamepad));
     else if (result == ERROR_DEVICE_NOT_CONNECTED) {
       std::fprintf(stderr, "[input] XInput controller disconnected\n");
       slot_ = XUSER_MAX_COUNT;
@@ -271,7 +277,23 @@ PadState ControllerInput::poll_sdl(bool focused) {
     stop();
     return pad;
   }
-  return gt4::pad::map_reading(read_sdl_gamepad(sdl_pad_), map_);
+  return map_timed(read_sdl_gamepad(sdl_pad_));
+}
+
+PadState ControllerInput::map_timed(const gt4::pad::GamepadReading &reading) {
+  // A gap longer than this (the pad lost, unplugged or the window unfocused) starts the sticks again from rest.
+  constexpr double resume_gap = 0.25;
+  const auto now = std::chrono::steady_clock::now();
+  double dt = 0.0;
+  if (has_last_mapped_)
+    dt = std::chrono::duration<double>(now - last_mapped_).count();
+  if (!has_last_mapped_ || dt > resume_gap) {
+    smoothing_.reset();
+    dt = 0.0;
+  }
+  last_mapped_ = now;
+  has_last_mapped_ = true;
+  return gt4::pad::map_reading(reading, map_, smoothing_, dt);
 }
 
 void ControllerInput::rumble(std::uint16_t value) {

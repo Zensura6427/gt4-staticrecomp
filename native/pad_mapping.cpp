@@ -20,20 +20,31 @@ void press(PadState &pad, std::uint8_t bit, std::uint8_t pressure) {
   pad.pressures[bit] = std::max(pad.pressures[bit], pressure);
 }
 
-} // namespace
-
-PadState map_reading(const GamepadReading &reading, const ControlMap &map) {
+PadState map_with(const GamepadReading &reading, const ControlMap &map, AxisSmoothing *smoothing, double dt) {
   PadState pad;
   const std::uint8_t triggers[] = {reading.left_trigger, reading.right_trigger};
   // PS2 analog byte order: RX, RY, LX, LY.
   const std::int16_t sticks[] = {reading.thumb_rx, reading.thumb_ry, reading.thumb_lx, reading.thumb_ly};
   for (std::size_t index = 0; index < input_count; ++index) {
     const auto &input = inputs[index];
-    for (const Binding &binding : map.bindings[index]) {
+    const auto &bindings = map.bindings[index];
+    if (smoothing)
+      smoothing->position[index].resize(bindings.size(), 0.0);
+    for (std::size_t slot = 0; slot < bindings.size(); ++slot) {
+      const Binding &binding = bindings[slot];
       if (input.axis) {
         if (binding.kind != SourceKind::xinput_axis)
           continue;
-        const std::uint8_t value = gt4::controls::read_axis(binding, sticks[binding.source_index]);
+        const std::int16_t raw = sticks[binding.source_index];
+        std::uint8_t value = 0;
+        if (smoothing && binding.response_time > 0.0) {
+          double &position = smoothing->position[index][slot];
+          position = gt4::controls::approach_position(position, gt4::controls::axis_position(binding, raw), dt,
+                                                      binding.response_time);
+          value = gt4::controls::axis_byte(binding, position);
+        } else {
+          value = gt4::controls::read_axis(binding, raw);
+        }
         // Several bindings on one stick: the reading furthest from rest wins.
         const int deflection = std::abs(static_cast<int>(value) - 128);
         if (deflection > std::abs(static_cast<int>(pad.axes[input.index]) - 128))
@@ -50,6 +61,21 @@ PadState map_reading(const GamepadReading &reading, const ControlMap &map) {
     }
   }
   return pad;
+}
+
+} // namespace
+
+PadState map_reading(const GamepadReading &reading, const ControlMap &map) {
+  return map_with(reading, map, nullptr, 0.0);
+}
+
+void AxisSmoothing::reset() {
+  for (auto &positions : position)
+    positions.clear();
+}
+
+PadState map_reading(const GamepadReading &reading, const ControlMap &map, AxisSmoothing &smoothing, double dt) {
+  return map_with(reading, map, &smoothing, dt);
 }
 
 RumbleMotors rumble_motors(std::uint16_t rumble) {

@@ -433,6 +433,10 @@
       slider("r2_deadzone", "R2 deadzone", 11.8), dropdown("r2_curve", "R2 curve", curve),
       slider("lstick_deadzone", "Left stick deadzone", 24),
       dropdown("lstick_curve", "Left stick curve", curve),
+      { id: "lstick_response_time", label: "Steering response time",
+        help: "How long the steering takes to go from the centre to full lock, in milliseconds. 0 is off.",
+        page: "basic", group: "controls", control: "slider", values: { min: 0, max: 1000, step: 25, unit: " ms" },
+        default: 0, current: 0 },
       slider("rstick_deadzone", "Right stick deadzone", 26.5)];
   }
   var analog = analogDefaults();

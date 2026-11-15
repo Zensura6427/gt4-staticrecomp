@@ -102,6 +102,74 @@ void check_sticks_and_dead_zones() {
   std::fprintf(stderr, "PASS: stick dead zones and directions\n");
 }
 
+// The left stick with a response time: a flick to full lock reaches it gradually, both ways, and a binding without one
+// reads exactly as map_reading does.
+void check_response_time() {
+  const ControlMap map = parse_controls("schema = 1\n[bindings]\n"
+                                        "lstick_x = [\"xinput:LX | deadzone=0.1 response_time=0.5\"]\n",
+                                        "response-time");
+  const ControlMap plain = parse_controls("schema = 1\n[bindings]\nlstick_x = [\"xinput:LX | deadzone=0.1\"]\n",
+                                          "plain");
+  const Binding &binding = map.bindings[18].front();
+  require(binding.response_time == 0.5, "response_time is parsed");
+
+  // Every reading of a stick without a response time is unchanged, whatever the time step.
+  AxisSmoothing smoothing;
+  GamepadReading reading = at_rest();
+  for (int raw = -32768; raw <= 32767; raw += 97) {
+    reading.thumb_lx = static_cast<std::int16_t>(raw);
+    require(map_reading(reading, plain, smoothing, 1.0 / 60).axes == map_reading(reading, plain).axes,
+            "no response time: the timed mapping is map_reading");
+  }
+  // axis_byte over axis_position is read_axis for every raw value and both dead zone modes.
+  for (const char *mode : {"skip", "keep"}) {
+    const ControlMap curves = parse_controls(std::string("schema = 1\n[bindings]\nlstick_x = [\"xinput:LX | curve=cubic "
+                                                         "game_deadzone=") + mode + "\"]\n",
+                                             "split");
+    const Binding &split = curves.bindings[18].front();
+    for (int raw = -32768; raw <= 32767; ++raw)
+      require(axis_byte(split, axis_position(split, static_cast<std::int16_t>(raw))) ==
+                  read_axis(split, static_cast<std::int16_t>(raw)),
+              "axis_byte(axis_position) is read_axis");
+  }
+
+  // Full right held from rest at 60 readings a second: 0.5 s from rest to full lock, rising every reading.
+  smoothing.reset();
+  reading = at_rest();
+  require(map_reading(reading, map, smoothing, 0.0).axes[2] == 128, "at rest");
+  reading.thumb_lx = 32767;
+  const std::uint8_t full = map_reading(reading, plain).axes[2];
+  int previous = 128;
+  int frames = 0;
+  while (map_reading(reading, map, smoothing, 1.0 / 60).axes[2] != full) {
+    const int now = map_reading(reading, map, smoothing, 0.0).axes[2];
+    require(now > previous, "the reading rises every step toward full lock");
+    previous = now;
+    require(++frames < 60, "full lock comes within the response time");
+  }
+  require(frames >= 28 && frames <= 30, "full lock after about 0.5 s (30 readings)");
+
+  // Released: back to rest no faster than the same rate.
+  reading.thumb_lx = 0;
+  const int after_one = map_reading(reading, map, smoothing, 1.0 / 60).axes[2];
+  require(after_one > 128 && after_one < full, "release returns gradually");
+  for (int frame = 0; frame < 30; ++frame)
+    map_reading(reading, map, smoothing, 1.0 / 60);
+  require(map_reading(reading, map, smoothing, 0.0).axes[2] == 128, "back at rest after the response time");
+
+  // A short tap to full lock gives only a small turn.
+  reading.thumb_lx = 32767;
+  for (int frame = 0; frame < 3; ++frame)
+    map_reading(reading, map, smoothing, 1.0 / 60);
+  const int tap = map_reading(reading, map, smoothing, 0.0).axes[2];
+  require(tap > 128 && tap < map_reading(reading, plain).axes[2], "a tap turns a little");
+  // reset() puts the stick back to rest at once.
+  smoothing.reset();
+  reading.thumb_lx = 0;
+  require(map_reading(reading, map, smoothing, 0.0).axes[2] == 128, "reset returns to rest");
+  std::fprintf(stderr, "PASS: stick response time\n");
+}
+
 void check_sdl_conversions() {
   // SDL reports Y positive down; the host negates it to the XInput convention before mapping.
   require(negate_axis(32767) == -32767, "negate_axis of a positive value");
@@ -215,6 +283,7 @@ int main() {
     check_default_buttons();
     check_triggers_and_pressure();
     check_sticks_and_dead_zones();
+    check_response_time();
     check_sdl_conversions();
     check_remap();
     check_rumble();

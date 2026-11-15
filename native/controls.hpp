@@ -90,6 +90,10 @@ struct Binding {
   // Sticks: step over GT4's own stick dead zone (option `game_deadzone=skip|keep`, TASK-147), so the game turns from the
   // first step past this binding's dead zone and linearly to full lock.
   bool skip_game_deadzone = true;
+  // Sticks: seconds the reading takes to travel from rest to full deflection (option `response_time`, 0..2). The reading
+  // follows the stick no faster than that, both ways, so a flick to full lock turns the wheels in gradually. 0 (the
+  // default) follows the stick at once, exactly as before.
+  double response_time = 0.0;
 };
 
 struct ControlMap {
@@ -145,5 +149,16 @@ TriggerReading read_trigger(const Binding &binding, std::uint8_t raw, PressureSc
 // Reads an XInput stick axis (-32768..32767) through one binding; returns the PS2
 // byte, 128 at rest.
 std::uint8_t read_axis(const Binding &binding, std::int16_t raw);
+
+// The same reading in two halves, so a response time can act between them. axis_position gives the reading past this
+// binding's dead zone and curve as a signed fraction of full deflection: 0 at rest, up to 1 one way (127 steps) and down
+// to -1 the other (128 steps), after `invert`. axis_byte turns such a fraction into the PS2 byte; for a fraction straight
+// from axis_position it gives exactly read_axis.
+double axis_position(const Binding &binding, std::int16_t raw);
+std::uint8_t axis_byte(const Binding &binding, double position);
+
+// Moves `current` toward `target` by at most dt / response_time (fractions of full deflection; dt and response_time in
+// seconds). A response_time of 0 or less returns `target`.
+double approach_position(double current, double target, double dt, double response_time);
 
 } // namespace gt4::controls

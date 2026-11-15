@@ -137,6 +137,8 @@ pub const LEFT_STICK_DEFAULT_DEADZONE: f32 = 3277.0 / 32767.0;
 pub const RIGHT_STICK_DEFAULT_DEADZONE: f32 = 3277.0 / 32767.0;
 /// Largest deadzone the launcher writes for a trigger or a stick (the file accepts values below 1).
 pub const MAX_DEADZONE: f32 = 0.95;
+/// The longest stick response time, in seconds (native/controls.cpp accepts 0..2).
+pub const MAX_RESPONSE_TIME: f32 = 2.0;
 
 /// One of the two PS2 analog sticks, as the Controls page tunes it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,6 +197,18 @@ fn with_option(source: &str, key: &str, value: &str) -> String {
         .collect();
     kept.push(format!("{key}={value}"));
     format!("{base} | {}", kept.join(" "))
+}
+
+/// `source` without its `key` option (and without the `|` when no option is left).
+fn without_option(source: &str, key: &str) -> String {
+    let (base, options) = split_options(source);
+    let prefix = format!("{key}=");
+    let kept: Vec<&str> = options.into_iter().filter(|option| !option.starts_with(&prefix)).collect();
+    if kept.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base} | {}", kept.join(" "))
+    }
 }
 
 /// XInput sources first, then keys, each in their current order (the drawing shows the first one of each family).
@@ -372,6 +386,47 @@ impl Controls {
         *self = next;
         Ok(())
     }
+    /// Response time of a stick in seconds (`response_time`), read from its first XInput axis source; 0 without one.
+    pub fn stick_response_time(&self, stick: Stick) -> f32 {
+        let source = stick.inputs().iter().find_map(|input| {
+            self.sources(input).and_then(|sources| sources.iter().find(|source| is_axis_source(source)))
+        });
+        let Some(source) = source else {
+            return 0.0;
+        };
+        let (_, options) = split_options(source);
+        options
+            .iter()
+            .find_map(|option| option.strip_prefix("response_time=").and_then(|value| value.parse::<f32>().ok()))
+            .unwrap_or(0.0)
+    }
+
+    /// Sets the response time (seconds, clamped to [0, MAX_RESPONSE_TIME]) on both axes of the stick. 0 removes the
+    /// option, so the file stays readable by a game build without it. Other options are kept.
+    pub fn set_stick_response_time(&mut self, stick: Stick, seconds: f32) -> Result<(), ControlsError> {
+        let seconds = seconds.clamp(0.0, MAX_RESPONSE_TIME);
+        let mut next = self.clone();
+        for input in stick.inputs() {
+            let updated: Vec<String> = self
+                .sources(input)
+                .unwrap_or(&[])
+                .iter()
+                .map(|source| {
+                    if !is_axis_source(source) {
+                        source.clone()
+                    } else if seconds > 0.0 {
+                        with_option(source, "response_time", &format!("{seconds:.2}"))
+                    } else {
+                        without_option(source, "response_time")
+                    }
+                })
+                .collect();
+            next.set_sources(input, updated)?;
+        }
+        *self = next;
+        Ok(())
+    }
+
     /// The button input other than `except` whose sources include `source` (compared without options).
     pub fn holder_of(&self, source: &str, except: &str) -> Option<String> {
         let base = source_base(source);
@@ -683,6 +738,16 @@ fn validate_option(line: usize, kind: InputKind, analog: bool, option: &str) -> 
                 return Err(error(line, "game_deadzone must be skip or keep"));
             }
         }
+        // Seconds a stick's reading takes from rest to full deflection (native/controls.hpp Binding::response_time).
+        "response_time" => {
+            if kind != InputKind::Stick {
+                return Err(error(line, "response_time applies to sticks only"));
+            }
+            let parsed: f32 = value.parse().map_err(|_| error(line, "response_time must be a number"))?;
+            if !(0.0..=MAX_RESPONSE_TIME).contains(&parsed) {
+                return Err(error(line, "response_time must be between 0 and 2 seconds"));
+            }
+        }
         // TASK-147: the pressure byte a trigger gives at full travel (the game defaults R2 to 45 and L2 to 84).
         // TASK-161: `range_full`, the same with the game's full trigger range on (default 255).
         "range" | "range_full" => {
@@ -858,6 +923,39 @@ mod tests {
         assert_eq!(restored.stick_curve(Stick::Left).as_str(), "quadratic");
         assert_eq!(restored.stick_curve(Stick::Right).as_str(), "cubic");
         assert!((restored.stick_deadzone(Stick::Left) - 0.200).abs() < 1e-6);
+    }
+    #[test]
+    fn stick_response_time_round_trips_and_zero_removes_it() {
+        let mut controls = Controls::default();
+        assert_eq!(controls.stick_response_time(Stick::Left), 0.0);
+
+        controls.set_stick_curve(Stick::Left, Curve::Quadratic).unwrap();
+        controls.set_stick_response_time(Stick::Left, 0.3).unwrap();
+        assert!((controls.stick_response_time(Stick::Left) - 0.3).abs() < 1e-6);
+        for input in ["lstick_x", "lstick_y"] {
+            let source = &controls.sources(input).unwrap()[0];
+            assert!(source.contains("response_time=0.30"), "{source}");
+            assert!(source.contains("curve=quadratic"), "{source}");
+        }
+        assert!(controls.sources("lstick_y").unwrap()[0].contains("invert=true"));
+        assert_eq!(controls.stick_response_time(Stick::Right), 0.0, "the right stick is independent");
+
+        let restored = Controls::parse(&controls.render()).unwrap();
+        assert!((restored.stick_response_time(Stick::Left) - 0.3).abs() < 1e-6);
+
+        // Clamped to the longest time; 0 takes the option away and keeps the others.
+        controls.set_stick_response_time(Stick::Left, 9.0).unwrap();
+        assert!((controls.stick_response_time(Stick::Left) - MAX_RESPONSE_TIME).abs() < 1e-6);
+        controls.set_stick_response_time(Stick::Left, 0.0).unwrap();
+        for input in ["lstick_x", "lstick_y"] {
+            let source = &controls.sources(input).unwrap()[0];
+            assert!(!source.contains("response_time"), "{source}");
+            assert!(source.contains("curve=quadratic"), "{source}");
+        }
+
+        assert!(Controls::parse("schema = 1\n[bindings]\nlstick_x = [\"xinput:LX | response_time=0.25\"]\n").is_ok());
+        assert!(Controls::parse("schema = 1\n[bindings]\nlstick_x = [\"xinput:LX | response_time=3\"]\n").is_err());
+        assert!(Controls::parse("schema = 1\n[bindings]\nr2 = [\"xinput:RT | response_time=0.25\"]\n").is_err());
     }
     #[test]
     fn stick_deadzones_default_to_ten_percent_and_round_trip() {

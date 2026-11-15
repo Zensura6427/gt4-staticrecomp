@@ -344,6 +344,19 @@ pub fn set_setting_of(id: String, value: Value, shared: &Shared) -> Result<(), S
                 .set_stick_curve(controls_file::Stick::Left, curve)
                 .map_err(|error| error.to_string())
         });
+    } else if id == "lstick_response_time" {
+        let millis = value.as_f64().ok_or_else(|| format!("'{id}' needs a number"))?;
+        if !(0.0..=f64::from(model::STEERING_RESPONSE_MAX_MS)).contains(&millis) {
+            return Err(format!(
+                "the steering response time must be between 0 and {} ms",
+                model::STEERING_RESPONSE_MAX_MS
+            ));
+        }
+        return change_controls(&mut state, |controls| {
+            controls
+                .set_stick_response_time(controls_file::Stick::Left, (millis / 1000.0) as f32)
+                .map_err(|error| error.to_string())
+        });
     } else if let Some(stick) = model::stick_setting(&id) {
         let percent = value.as_f64().ok_or_else(|| format!("'{id}' needs a number"))?;        if !(0.0..=100.0).contains(&percent) {
             return Err("the deadzone must be between 0 and 100 percent".into());

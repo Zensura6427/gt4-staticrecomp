@@ -35,6 +35,20 @@ struct PadState {
 // wins; on a stick the reading furthest from rest wins.
 PadState map_reading(const GamepadReading &reading, const gt4::controls::ControlMap &map);
 
+// Where each stick binding with a response time (Binding::response_time) has got to, as a signed fraction of full
+// deflection (controls::axis_position), one entry per binding of each input. Empty until the first reading.
+struct AxisSmoothing {
+  std::array<std::vector<double>, gt4::controls::input_count> position;
+  // Back to rest at once, for a pad that is lost, unplugged or unfocused.
+  void reset();
+};
+
+// The same mapping with stick response times: each stick binding's reading moves toward the stick by at most
+// dt / response_time per call (dt in seconds since the previous reading). Bindings without a response time read exactly
+// as map_reading does.
+PadState map_reading(const GamepadReading &reading, const gt4::controls::ControlMap &map, AxisSmoothing &smoothing,
+                     double dt);
+
 // Motor values (unchanged from the XInput path): the high byte of the rumble word scaled to 0..65535 on the left
 // motor, and its low bit as full strength on the right motor. XInput and SDL3 both take 0..65535 values.
 struct RumbleMotors {
